@@ -1,96 +1,286 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
+import axios from 'axios';
+try {
+  const token = localStorage.getItem('token');
+  if (token) {
+    axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
+  }
+} catch (e) {
+  // localStorage might not be available in some envs
+  console.warn('Could not set default Authorization header', e);
+}
+// Cấu hình URL API
+const API_URL = 'http://192.168.1.3:3000/user';
 
 function UserManager() {
-  // 1. Mock Data (Dữ liệu giả)
-  const [users, setUsers] = useState([
-    { id: 1, name: "Nguyễn Văn A", email: "a@gmail.com" },
-    { id: 2, name: "Trần Thị B", email: "b@gmail.com" }
-  ]);
-
-  const [form, setForm] = useState({ id: '', name: '', email: '' });
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(false);
+  
+  // State form
+  const [form, setForm] = useState({ 
+    id: '', 
+    username: '', 
+    email: '', 
+    password: '',
+    facebook_id: '',
+    gender: 'true', 
+    birthday: '',
+    role: 'user', // Mặc định là User thường
+    // type: 'local' // Sẽ được xử lý ngầm, không cần đưa vào state hiển thị
+  });
+  
   const [isEditing, setIsEditing] = useState(false);
-
-  // Xử lý input thay đổi
+  
+  // --- 1. LẤY DANH SÁCH USER ---
+  const fetchUsers = async () => {
+    setLoading(true);
+    try {
+      const response = await axios.get(API_URL);
+      const data = Array.isArray(response.data) ? response.data : response.data.data || [];
+      setUsers(data);
+    } catch (error) {
+      console.error("Lỗi tải danh sách:", error);
+      alert("Không thể kết nối đến Backend!");
+    } finally {
+      setLoading(false);
+    }
+  };
+  
+  useEffect(() => {
+    fetchUsers();
+  }, []);
+  
+  // --- 2. XỬ LÝ INPUT FORM ---
   const handleChange = (e) => {
-    setForm({ ...form, [e.target.name]: e.target.value });
+    const value = e.target.type === 'checkbox' ? e.target.checked : e.target.value;
+    setForm({ ...form, [e.target.name]: value });
   };
-
-  // Thêm hoặc Cập nhật User
-  const handleSubmit = () => {
-    if (!form.name || !form.email) return alert("Vui lòng điền đủ thông tin");
-
-    if (isEditing) {
-      // Cập nhật
-      setUsers(users.map(u => u.id === form.id ? form : u));
-      setIsEditing(false);
-    } else {
-      // Thêm mới (Tạo ID ngẫu nhiên đơn giản)
-      const newUser = { ...form, id: Date.now() };
-      setUsers([...users, newUser]);
+  
+  // --- 3. THÊM HOẶC SỬA ---
+  const handleSubmit = async () => {
+    // Validate cơ bản
+    if (!form.username || !form.email) return alert("Vui lòng điền username và email");
+    if (!isEditing && (!form.password || form.password.length < 8)) {
+      return alert("Mật khẩu phải từ 8 ký tự trở lên");
     }
-    setForm({ id: '', name: '', email: '' }); // Reset form
-  };
-
-  // Xóa User
-  const handleDelete = (id) => {
-    if (window.confirm("Bạn có chắc muốn xóa?")) {
-      setUsers(users.filter(user => user.id !== id));
+    
+    try {
+      // Chuẩn bị dữ liệu gửi lên (Payload)
+      const payload = {
+        username: form.username,
+        email: form.email,
+        role: form.role, // <--- Gửi Role (admin/user)
+        type: 'local',   // <--- Luôn mặc định là 'local' như yêu cầu
+        facebook_id: form.facebook_id || undefined,
+        gender: form.gender === 'true' || form.gender === true,
+        otpCode: "",
+      };
+      
+      // Xử lý ngày sinh
+      if (form.birthday) {
+        payload.birthday = new Date(form.birthday).toISOString();
+      }
+      
+      // Xử lý mật khẩu
+      if (form.password) {
+        payload.password = form.password;
+      }
+      
+            if (isEditing) {
+        // PREVENT sending when id undefined or invalid
+        if (!form.id || form.id === 'undefined') {
+          console.error('Attempt to PATCH with invalid id:', form.id, form);
+          alert("Lỗi: ID người dùng không hợp lệ. Vui lòng nhấn 'Edit' trên 1 user trước khi lưu.");
+          return;
+        }
+        console.log('Updating user id=', form.id, 'payload=', payload);
+        await axios.patch(`${API_URL}/${form.id}`, payload);
+        alert("Cập nhật thành công!");
+      } else {
+        await axios.post(API_URL, payload);
+        alert("Thêm mới thành công!");
+      }
+      
+      fetchUsers(); 
+      resetForm();
+    } catch (error) {
+      console.error("Lỗi Submit:", error);
+      const msg = error.response?.data?.message 
+      ? (Array.isArray(error.response.data.message) ? error.response.data.message.join(', ') : error.response.data.message)
+      : error.message;
+      alert("Lỗi: " + msg);
     }
   };
-
-  // Đổ dữ liệu lên form để sửa
+  
+  // --- 4. XÓA USER ---
+  const handleDelete = async (id) => {
+    if (window.confirm("Bạn có chắc muốn xóa user này?")) {
+      try {
+        await axios.delete(`${API_URL}/${id}`);
+        setUsers(users.filter(user => (user._id || user.id) !== id));
+      } catch (error) {
+        alert("Xóa thất bại!");
+        fetchUsers();
+      }
+    }
+  };
+  
+  // --- 5. EDIT & RESET ---
   const handleEdit = (user) => {
-    setForm(user);
+    // Normalize id: user._id may be string or object like { $oid: "..." }
+    let uid = user._id ?? user.id;
+    if (uid && typeof uid === 'object') {
+      uid = uid.$oid || uid.toString();
+    }
+    
+    if (!uid) {
+      console.warn('handleEdit: missing id for user', user);
+      alert('Không thể chỉnh sửa user này: thiếu id từ server. Kiểm tra console.');
+      return;
+    }
+    
+    setForm({
+      id: uid,
+      username: user.username || '',
+      email: user.email || '',
+      password: '', 
+      facebook_id: user.facebook_id || '',
+      gender: user.gender ? 'true' : 'false',
+      birthday: user.birthday ? user.birthday.split('T')[0] : '',
+      role: user.role || 'user'
+    });
     setIsEditing(true);
   };
-
+  
+  const resetForm = () => {
+    setForm({ 
+      id: '', username: '', email: '', password: '', 
+      facebook_id: '', gender: 'true', birthday: '', 
+      role: 'user' // Reset về mặc định
+    });
+    setIsEditing(false);
+  };
+  
+  const formatDate = (isoString) => {
+    if (!isoString) return "-";
+    return new Date(isoString).toLocaleDateString('vi-VN');
+  };
+  
   return (
     <div>
-      <h2>Quản lý Người dùng</h2>
-      
-      {/* Form Thêm/Sửa */}
-      <div className="form-group">
-        <input 
-          name="name" 
-          placeholder="Họ tên" 
-          value={form.name} 
-          onChange={handleChange} 
-        />
-        <input 
-          name="email" 
-          placeholder="Email" 
-          value={form.email} 
-          onChange={handleChange} 
-        />
-        <button onClick={handleSubmit}>
-          {isEditing ? "Cập nhật User" : "Thêm User mới"}
-        </button>
-      </div>
-
-      {/* Danh sách User */}
-      <table>
-        <thead>
-          <tr>
-            <th>ID</th>
-            <th>Tên</th>
-            <th>Email</th>
-            <th>Hành động</th>
-          </tr>
-        </thead>
-        <tbody>
-          {users.map(user => (
-            <tr key={user.id}>
-              <td>{user.id}</td>
-              <td>{user.name}</td>
-              <td>{user.email}</td>
-              <td>
-                <button className="edit" onClick={() => handleEdit(user)}>Sửa</button>
-                <button className="delete" onClick={() => handleDelete(user.id)}>Xóa</button>
-              </td>
-            </tr>
-          ))}
-        </tbody>
-      </table>
+    <div style={{display: 'flex', justifyContent: 'space-between', alignItems: 'center'}}>
+    <h2>Quản lý Người dùng {loading && <span style={{fontSize: '0.6em', color: '#888'}}>(Đang tải...)</span>}</h2>
+    <button onClick={fetchUsers} style={{background: '#2ecc71'}}>🔄 Refresh</button>
+    </div>
+    
+    {/* Form Input */}
+    <div className="form-group">
+    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '10px' }}>
+    
+    <div>
+    <label style={{fontSize: '12px'}}>Username *</label>
+    <input name="username" placeholder="Username" value={form.username} onChange={handleChange} />
+    </div>
+    
+    <div>
+    <label style={{fontSize: '12px'}}>Email *</label>
+    <input name="email" placeholder="Email" value={form.email} onChange={handleChange} />
+    </div>
+    
+    <div>
+    <label style={{fontSize: '12px'}}>Mật khẩu {isEditing ? "(Để trống nếu ko đổi)" : "*"}</label>
+    <input name="password" type="password" placeholder="Min 8 ký tự" value={form.password} onChange={handleChange} />
+    </div>
+    
+    {/* --- DROPDOWN CHỌN ROLE (QUYỀN) --- */}
+    <div style={{display: 'flex', flexDirection: 'column'}}>
+    <label style={{fontSize: '12px', marginBottom: '4px', fontWeight: 'bold', color: '#d35400'}}>Vai trò (Role)</label>
+    <select name="role" value={form.role} onChange={handleChange} style={{border: '1px solid #e67e22'}}>
+    <option value="user">Người dùng (User)</option>
+    <option value="admin">Quản trị viên (Admin)</option>
+    </select>
+    </div>
+    {/* ---------------------------------- */}
+    
+    <div>
+    <label style={{fontSize: '12px'}}>Facebook ID</label>
+    <input name="facebook_id" placeholder="Facebook ID" value={form.facebook_id} onChange={handleChange} />
+    </div>
+    
+    <div style={{display: 'flex', flexDirection: 'column'}}>
+    <label style={{fontSize: '12px', marginBottom: '4px'}}>Ngày sinh</label>
+    <input type="date" name="birthday" value={form.birthday} onChange={handleChange} />
+    </div>
+    
+    <div style={{display: 'flex', flexDirection: 'column'}}>
+    <label style={{fontSize: '12px', marginBottom: '4px'}}>Giới tính</label>
+    <select name="gender" value={form.gender} onChange={handleChange}>
+    <option value="true">Nam</option>
+    <option value="false">Nữ</option>
+    </select>
+    </div>
+    </div>
+    
+    <div style={{ marginTop: '15px' }}>
+    <button
+    onClick={handleSubmit}
+    disabled={isEditing && (!form.id || form.id === 'undefined')}
+    title={isEditing && (!form.id || form.id === 'undefined') ? "ID người dùng không hợp lệ" : undefined}
+    >
+    {isEditing ? "💾 Lưu thay đổi" : "➕ Thêm mới"}
+    </button>
+    {isEditing && <button onClick={resetForm} style={{backgroundColor: '#95a5a6'}}>Hủy bỏ</button>}
+    </div>
+    </div>
+    
+    {/* Table Display */}
+    <div style={{ overflowX: 'auto' }}>
+    <table style={{width: '100%', borderCollapse: 'collapse'}}>
+    <thead>
+    <tr style={{background: '#ecf0f1'}}>
+    <th>Username</th>
+    <th>Email</th>
+    <th>Role</th> {/* Cột Role thay vì Type */}
+    <th>Giới tính</th>
+    <th>Ngày sinh</th>
+    <th>Action</th>
+    </tr>
+    </thead>
+    <tbody>
+    {users.map(user => {
+      const uid = user._id || user.id;
+      return (
+        <tr key={uid}>
+        <td>{user.username}</td>
+        <td>{user.email}</td>
+        
+        {/* Hiển thị Role */}
+        <td>
+        <span style={{
+          padding: '4px 8px', 
+          borderRadius: '4px', 
+          // Admin màu đỏ, User màu xanh
+          background: user.role === 'admin' ? '#c0392b' : '#2980b9', 
+          color: 'white', 
+          fontSize: '12px',
+          fontWeight: 'bold'
+        }}>
+        {user.role ? user.role.toUpperCase() : 'USER'}
+        </span>
+        </td>
+        
+        <td>{user.gender ? "Nam" : "Nữ"}</td>
+        <td>{formatDate(user.birthday)}</td>
+        <td style={{ width: '120px' }}>
+        <button className="edit" onClick={() => handleEdit(user)}>✏️</button>
+        <button className="delete" onClick={() => handleDelete(uid)}>🗑️</button>
+        </td>
+        </tr>
+      );
+    })}
+    </tbody>
+    </table>
+    </div>
     </div>
   );
 }
