@@ -1,9 +1,8 @@
 import React, { useState } from 'react';
-import axios from 'axios';
+import instance from './utils/axiosInstance';
 import { useNavigate } from 'react-router-dom';
 
-// Đổi IP nếu bạn test trên điện thoại hoặc máy khác
-const API_URL = 'http://192.168.1.3:3000/auth/login'; 
+// Sử dụng `instance` với `baseURL` được cấu hình trong `src/utils/axiosInstance`
 
 function Login() {
   const [username, setUsername] = useState(''); // Backend bạn gọi là identifier (email hoặc username)
@@ -64,9 +63,9 @@ const handleLogin = async (e) => {
     console.log("📦 FE Payload:", { username, password });
 
     try {
-      const response = await axios.post(API_URL, {
-        identifier: username, 
-        password: password
+      const response = await instance.post('/auth/login', {
+        identifier: username,
+        password: password,
       });
 
       // [DEBUG 2] Xem dữ liệu Server trả về nếu thành công
@@ -81,18 +80,24 @@ const handleLogin = async (e) => {
         return;
       }
 
-      const token = data.access_token || data.accessToken; 
+      const token = data.access_token || data.accessToken;
 
       if (!token) {
-          console.error("❌ Lỗi: Backend không trả về token!");
-          setError("Lỗi hệ thống: Không nhận được token");
-          setLoading(false);
-          return;
+        console.error('❌ Lỗi: Backend không trả về token!');
+        setError('Lỗi hệ thống: Không nhận được token');
+        setLoading(false);
+        return;
       }
 
       // 2. Lưu Token
-      console.log("💾 Đang lưu token:", token);
+      console.log('💾 Đang lưu token:', token);
       localStorage.setItem('token', token);
+      // Cập nhật header mặc định cho instance
+      try {
+        instance.defaults.headers.common['Authorization'] = `Bearer ${token}`
+      } catch (e) {
+        console.warn('Could not set Authorization header on instance', e)
+      }
       
       // 3. Lưu User
       localStorage.setItem('user', JSON.stringify(data.user));

@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
+import instance from '../utils/axiosInstance';
 
-const API_URL = 'http://192.168.1.3:3000/posts';
+const API_PATH = '/posts';
 
 // CẤU HÌNH CLOUDINARY
 const CLOUD_NAME = 'dthx1zz57'; 
@@ -26,8 +27,8 @@ function PostManager() {
     let mounted = true;
     const load = async () => {
       try {
-        const res = await fetch(API_URL);
-        const data = await res.json();
+        const res = await instance.get(API_PATH);
+        const data = res.data;
         if (mounted) {
             if (Array.isArray(data)) setPosts(data);
             else if (data.data && Array.isArray(data.data)) setPosts(data.data);
@@ -116,18 +117,14 @@ function PostManager() {
 
     try {
       // SỬA LỖI PUT UNDEFINED: Dùng form.id đã được set trong handleEdit
-      const url = isEditing ? `${API_URL}/${form.id}` : API_URL;
-      const method = isEditing ? 'PUT' : 'POST';
+      let res;
+      if (isEditing) {
+        res = await instance.put(`${API_PATH}/${form.id}`, payload);
+      } else {
+        res = await instance.post(API_PATH, payload);
+      }
 
-      const res = await fetch(url, {
-        method: method,
-        headers: { 'Content-Type': 'application/json' }, // BẮT BUỘC
-        body: JSON.stringify(payload),
-      });
-
-      const data = await res.json();
-
-      if (!res.ok) throw new Error(data.message || "Lỗi từ server");
+      const data = res.data;
 
       if (isEditing) {
         // Cập nhật lại list (so sánh theo _id hoặc id)
@@ -156,7 +153,7 @@ function PostManager() {
     if(!window.confirm("Bạn có chắc muốn xóa?")) return;
     
     try {
-      await fetch(`${API_URL}/${id}`, { method: 'DELETE' });
+      await instance.delete(`${API_PATH}/${id}`);
       setPosts(prev => prev.filter(p => p._id !== id)); // Lọc theo _id
     } catch (err) {
       console.error('Failed to delete post', err);

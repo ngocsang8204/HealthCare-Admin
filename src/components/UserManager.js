@@ -1,16 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import axios from 'axios';
-try {
-  const token = localStorage.getItem('token');
-  if (token) {
-    axios.defaults.headers.common['Authorization'] = `Bearer ${token}`;
-  }
-} catch (e) {
-  // localStorage might not be available in some envs
-  console.warn('Could not set default Authorization header', e);
-}
-// Cấu hình URL API
-const API_URL = 'http://192.168.1.3:3000/user';
+import instance from '../utils/axiosInstance';
+
+// API path (instance already has baseURL)
+const API_PATH = '/user';
 
 function UserManager() {
   const [users, setUsers] = useState([]);
@@ -35,7 +27,7 @@ function UserManager() {
   const fetchUsers = async () => {
     setLoading(true);
     try {
-      const response = await axios.get(API_URL);
+      const response = await instance.get(API_PATH);
       const data = Array.isArray(response.data) ? response.data : response.data.data || [];
       setUsers(data);
     } catch (error) {
@@ -94,10 +86,10 @@ function UserManager() {
           return;
         }
         console.log('Updating user id=', form.id, 'payload=', payload);
-        await axios.patch(`${API_URL}/${form.id}`, payload);
+        await instance.patch(`${API_PATH}/${form.id}`, payload);
         alert("Cập nhật thành công!");
       } else {
-        await axios.post(API_URL, payload);
+        await instance.post(API_PATH, payload);
         alert("Thêm mới thành công!");
       }
       
@@ -116,9 +108,10 @@ function UserManager() {
   const handleDelete = async (id) => {
     if (window.confirm("Bạn có chắc muốn xóa user này?")) {
       try {
-        await axios.delete(`${API_URL}/${id}`);
+        await instance.delete(`${API_PATH}/${id}`);
         setUsers(users.filter(user => (user._id || user.id) !== id));
       } catch (error) {
+        console.error('Xóa thất bại:', error);
         alert("Xóa thất bại!");
         fetchUsers();
       }
