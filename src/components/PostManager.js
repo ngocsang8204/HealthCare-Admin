@@ -149,16 +149,38 @@ function PostManager() {
   };
 
   // XÓA BÀI VIẾT (Dùng _id)
-  const handleDelete = async (id) => {
+  // const handleDelete = async (id) => {
+  //   if(!window.confirm("Bạn có chắc muốn xóa?")) return;
+    
+  //   try {
+  //     console.log("Deleting post with ID:", id);
+  //     await instance.delete(`${API_PATH}/${id}`);
+  //     setPosts(prev => prev.filter(p => p._id !== id)); // Lọc theo _id
+  //   } catch (err) {
+  //     console.error('Failed to delete post', err);
+  //   }
+  // }
+  // ...existing code...
+  // XÓA BÀI VIẾT (Dùng _id hoặc id)
+  const handleDelete = async (id, postObj) => {
+    console.log("Delete called, id:", id, "post:", postObj); // debug: kiểm tra object
+    if(!id) {
+      console.error("Delete called with undefined id");
+      return alert("Không tìm thấy ID bài viết.");
+    }
     if(!window.confirm("Bạn có chắc muốn xóa?")) return;
     
     try {
-      await instance.delete(`${API_PATH}/${id}`);
-      setPosts(prev => prev.filter(p => p._id !== id)); // Lọc theo _id
+      const res = await instance.delete(`${API_PATH}/${id}`);
+      console.log("Delete response:", res.status, res.data);
+      // Loại cả trường hợp _id hoặc id
+      setPosts(prev => prev.filter(p => (p._id || p.id) !== id));
     } catch (err) {
       console.error('Failed to delete post', err);
+      alert("Xóa thất bại: " + (err.response?.data?.message || err.message));
     }
   }
+// ...existing code...
 
   // CHUẨN BỊ SỬA (QUAN TRỌNG NHẤT)
   const handleEdit = (post) => {
@@ -224,7 +246,7 @@ function PostManager() {
               // Dùng _id làm key để tránh trùng lặp
               <tr key={post._id || post.id}>
                 <td>
-                    <small style={{fontSize: 10, color: '#666'}}>{post._id}</small>
+                    <small style={{fontSize: 10, color: '#666'}}>{post._id || post.id}</small>
                 </td>
                 <td style={{ textAlign: 'center' }}>
                     {post.image ? (
@@ -237,7 +259,7 @@ function PostManager() {
                 <td>
                   <button onClick={() => handleEdit(post)} style={{ marginRight: 5 }}>Sửa</button>
                   {/* Truyền _id vào hàm xóa */}
-                  <button onClick={() => handleDelete(post._id)} style={{ color: 'red' }}>Xóa</button>
+                  <button onClick={() => handleDelete(post._id || post.id, post)} style={{ color: 'red' }}>Xóa</button>
                 </td>
               </tr>
             ))
