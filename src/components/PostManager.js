@@ -9,18 +9,32 @@ const UPLOAD_PRESET = 'blog_upload_demo';
 
 function PostManager() {
   const [posts, setPosts] = useState([]);
+    const [query, setQuery] = useState('');
+  const [filterType, setFilterType] = useState('all');
   const [form, setForm] = useState({ 
     id: '', // Quan trọng: dùng để lưu _id khi sửa
     title: '', 
     excerpt: '', 
     content: '', 
     image: '', 
-    date: '' 
+    date: '',
+    type: '' 
   });
   
   const [selectedFile, setSelectedFile] = useState(null);
   const [isUploading, setIsUploading] = useState(false);
   const [isEditing, setIsEditing] = useState(false);
+
+  // Helper: sort posts by date (newest first). Falls back to 0 for invalid dates.
+  function sortPosts(arr) {
+    if (!Array.isArray(arr)) return [];
+    const toTime = (p) => {
+      const d = p && (p.date || p.createdAt) ? (p.date || p.createdAt) : '';
+      const t = Date.parse(d);
+      return isNaN(t) ? 0 : t;
+    };
+    return arr.slice().sort((a, b) => toTime(b) - toTime(a));
+  }
 
   // LOAD DATA
   useEffect(() => {
@@ -29,11 +43,11 @@ function PostManager() {
       try {
         const res = await instance.get(API_PATH);
         const data = res.data;
-        if (mounted) {
-            if (Array.isArray(data)) setPosts(data);
-            else if (data.data && Array.isArray(data.data)) setPosts(data.data);
-            else setPosts([]);
-        }
+          if (mounted) {
+              if (Array.isArray(data)) setPosts(sortPosts(data));
+              else if (data.data && Array.isArray(data.data)) setPosts(sortPosts(data.data));
+              else setPosts([]);
+          }
       } catch (err) {
         console.error('Failed to load posts', err);
         if (mounted) setPosts([]);
@@ -52,6 +66,13 @@ function PostManager() {
         setForm(prev => ({ ...prev, image: URL.createObjectURL(file) }));
     }
   };
+
+  // Available post types
+  const POST_TYPES = [
+    { value: 'nutrition', label: 'Nutrition' },
+    { value: 'sport', label: 'Sport' },
+    { value: 'work_out', label: 'Work Out' }
+  ];
 
   // UPLOAD CLOUDINARY
   const uploadToCloudinary = async (file) => {
@@ -110,10 +131,10 @@ function PostManager() {
         excerpt: form.excerpt || form.content.substring(0, 100),
         content: form.content,
         image: imageUrl,
-        date: form.date || new Date().toISOString()
+      date: form.date || new Date().toISOString(),
+      type: form.type || ''
     };
-
-    console.log("Sending Payload:", payload);
+    
 
     try {
       // SỬA LỖI PUT UNDEFINED: Dùng form.id đã được set trong handleEdit
@@ -128,14 +149,14 @@ function PostManager() {
 
       if (isEditing) {
         // Cập nhật lại list (so sánh theo _id hoặc id)
-        setPosts(prev => prev.map(p => (p._id === data._id || p.id === data.id) ? data : p));
+        setPosts(prev => sortPosts(prev.map(p => (p._id === data._id || p.id === data.id) ? data : p)));
         setIsEditing(false);
       } else {
-        setPosts(prev => [...prev, data]);
+        setPosts(prev => sortPosts([...prev, data]));
       }
       
       // Reset form hoàn toàn
-      setForm({ id: '', title: '', excerpt: '', content: '', image: '', date: '' });
+      setForm({ id: '', title: '', excerpt: '', content: '', image: '', date: '', type: '' });
       setSelectedFile(null);
       document.getElementById('fileInput').value = "";
       alert("Thành công!");
@@ -163,7 +184,7 @@ function PostManager() {
   // ...existing code...
   // XÓA BÀI VIẾT (Dùng _id hoặc id)
   const handleDelete = async (id, postObj) => {
-    console.log("Delete called, id:", id, "post:", postObj); // debug: kiểm tra object
+    
     if(!id) {
       console.error("Delete called with undefined id");
       return alert("Không tìm thấy ID bài viết.");
@@ -172,9 +193,8 @@ function PostManager() {
     
     try {
       const res = await instance.delete(`${API_PATH}/${id}`);
-      console.log("Delete response:", res.status, res.data);
-      // Loại cả trường hợp _id hoặc id
-      setPosts(prev => prev.filter(p => (p._id || p.id) !== id));
+      // Loại cả trường hợp _id hoặc id, rồi sắp xếp lại
+      setPosts(prev => sortPosts(prev.filter(p => (p._id || p.id) !== id)));
     } catch (err) {
       console.error('Failed to delete post', err);
       alert("Xóa thất bại: " + (err.response?.data?.message || err.message));
@@ -184,7 +204,7 @@ function PostManager() {
 
   // CHUẨN BỊ SỬA (QUAN TRỌNG NHẤT)
   const handleEdit = (post) => {
-    console.log("Edit post:", post);
+    
     setForm({ 
         // Ưu tiên lấy _id của MongoDB, phòng hờ thì lấy id
         id: post._id || post.id, 
@@ -192,11 +212,26 @@ function PostManager() {
         excerpt: post.excerpt || '',
         content: post.content,
         image: post.image || '', 
-        date: post.date
+        date: post.date,
+        type: post.type || ''
     });
     setSelectedFile(null);
     setIsEditing(true);
   };
+
+  // Filter posts by type and search query (title, excerpt, content)
+  const queryLower = (query || '').toLowerCase().trim();
+  const filteredByType = filterType && filterType !== 'all'
+    ? posts.filter(p => (p.type || '') === filterType)
+    : posts;
+
+  const filteredPosts = queryLower
+    ? filteredByType.filter(p => (
+        (p.title || '').toLowerCase().includes(queryLower) ||
+        (p.excerpt || '').toLowerCase().includes(queryLower) ||
+        (p.content || '').toLowerCase().includes(queryLower)
+      ))
+    : filteredByType;
 
   return (
     <div style={{ padding: 20 }}>
@@ -216,6 +251,14 @@ function PostManager() {
             <img src={form.image} alt="Preview" style={{ width: '100%', maxHeight: 200, objectFit: 'cover', borderRadius: 8 }} />
         )}
 
+        <div>
+          <label>Loại bài viết: </label>
+          <select name="type" value={form.type} onChange={handleChange} style={{ padding: 8, marginTop: 6 }}>
+            <option value="">-- Chọn loại --</option>
+            {POST_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+          </select>
+        </div>
+
         <button 
             onClick={handleSubmit} 
             disabled={isUploading}
@@ -225,24 +268,38 @@ function PostManager() {
         </button>
         
         {isEditing && (
-            <button onClick={() => { setIsEditing(false); setForm({ id: '', title: '', excerpt: '', content: '', image: '', date: '' }); setSelectedFile(null); }} style={{ marginTop: 5 }}>
-                Hủy
-            </button>
+          <button onClick={() => { setIsEditing(false); setForm({ id: '', title: '', excerpt: '', content: '', image: '', date: '', type: '' }); setSelectedFile(null); }} style={{ marginTop: 5 }}>
+            Hủy
+          </button>
         )}
       </div>
 
+      <div style={{ marginBottom: 12, maxWidth: 500, display: 'flex', gap: 8 }}>
+        <input
+          placeholder="Tìm kiếm theo tiêu đề, mô tả hoặc nội dung..."
+          value={query}
+          onChange={(e) => setQuery(e.target.value)}
+          style={{ padding: 8, width: '70%' }}
+        />
+        <select value={filterType} onChange={(e) => setFilterType(e.target.value)} style={{ padding: 8, width: '30%' }}>
+          <option value="all">Tất cả loại</option>
+          {POST_TYPES.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+        </select>
+      </div>
+
        <table border="1" cellPadding="10" style={{ width: '100%', borderCollapse: 'collapse' }}>
-        <thead>
-          <tr style={{ backgroundColor: '#f2f2f2' }}>
-            <th>ID (Mongo)</th>
-            <th>Ảnh</th>
-            <th>Tiêu đề</th>
-            <th>Hành động</th>
-          </tr>
-        </thead>
+          <thead>
+            <tr style={{ backgroundColor: '#f2f2f2' }}>
+              <th>ID (Mongo)</th>
+              <th>Ảnh</th>
+              <th>Tiêu đề</th>
+              <th>Loại</th>
+              <th>Hành động</th>
+            </tr>
+          </thead>
         <tbody>
-          {Array.isArray(posts) && posts.length > 0 ? (
-            posts.map(post => (
+          {Array.isArray(filteredPosts) && filteredPosts.length > 0 ? (
+            filteredPosts.map(post => (
               // Dùng _id làm key để tránh trùng lặp
               <tr key={post._id || post.id}>
                 <td>
@@ -256,6 +313,7 @@ function PostManager() {
                     )}
                 </td>
                 <td>{post.title}</td>
+                <td style={{ textTransform: 'capitalize' }}>{post.type || '-'}</td>
                 <td>
                   <button onClick={() => handleEdit(post)} style={{ marginRight: 5 }}>Sửa</button>
                   {/* Truyền _id vào hàm xóa */}
@@ -264,7 +322,7 @@ function PostManager() {
               </tr>
             ))
           ) : (
-            <tr><td colSpan="4">Chưa có bài viết.</td></tr>
+            <tr><td colSpan="5">Chưa có bài viết.</td></tr>
           )}
         </tbody>
       </table>
